@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
-
 # Plot nearby stars, e.g., for Project Hail Mary
+
+# Copyright 2021+ David A. Wheeler and plot-stars contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# The resulting graph is to be licensed as Creative Commons Attribution (CC-BY)
+# version 3.0 or later. Thus, produced graphs can be included in just about
+# anything, just give credit ("created by plot-stars by David A. Wheeler").
 
 import pandas as pd
 import numpy as np
