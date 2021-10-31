@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+
+# Plot nearby stars, e.g., for Project Hail Mary
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+import re
+import math
+import statistics
+
+# For now, this is the default
+HAIL_MARY = True
+
+RADIANS_FROM_DEGREES = (2. * math.pi) / 360.
+
+def fix_sign(x):
+  """Returns fiex_text, sign"""
+  sign = 1  
+  x = x.lstrip()
+  if x.startswith('-'):
+    x = x[1:]
+    sign = -1
+  elif x.startswith('−'): # longdash
+    x = x[1:]
+    sign = -1
+  return (x, sign)
+
+assert fix_sign('−62') == ('62', -1)
+
+NUM_RE = re.compile(r' *(\+|-|−)?([0-9.]+)')
+
+# Convert Wikimedia text into a number.
+# skips ± and after,
+# turns None into 0.
+def get_number(x):
+  x, sign = fix_sign(x)
+  result = NUM_RE.match(x)
+  if result is None:
+    return np.nan
+  value = result.group(2)
+  if value is None:
+    return np.nan
+  result = float(value) * sign
+  return result
+
+assert get_number('0') == 0.0
+assert get_number('−1.5') == -1.5
+
+DMS_RE = re.compile(r' *\+?([0-9]+)(?:°|d)(?: *([0-9]+)(?:′|m))?(?: *([0-9.]+)(?:″|s))?')
+
+def fix_declination(x):
+  """Convert degrees-minutes-seconds degrees into radians."""
+  # E.g.: −53° 19′ 06″,501.557±0.082[17]
+  if not isinstance(x, str) and np.isnan(x):
+    return np.nan
+  x, sign = fix_sign(x)
+  result = DMS_RE.match(x)
+  if result is None:
+    return np.nan
+  d, m, s = result.group(1, 2, 3)
+  if m is None: m = '0'
+  if s is None: s = '0'
+  total_degrees = float(d) + float(m) / 60. + float(s) / 3600.
+  radians = total_degrees * RADIANS_FROM_DEGREES * sign
+  return radians
+
+assert fix_declination('0°') == 0.0
+assert fix_declination('−90°') == - math.pi / 2
+assert fix_declination('−53° 19′ 06″') == (
+  -1 * (53. + 19./60 + 6./3600) * RADIANS_FROM_DEGREES
+)
+
+# We only match at the beginning, so it doesn't matter what happens afterwards
+HMS_RE = re.compile(r' *([0-9]+)h(?: *([0-9]+)m)?(?: *([0-9.]+)s)?')
+DEGREES_FROM_SECONDS = 360. / (24 * 60 * 60)
+
+# Converts long-dash to dash like sed -e 's/–/-/g',
+def fix_ascension(x):
+  """Convert Xh Ym Zs degrees into radians."""
+  if not isinstance(x, str) and np.isnan(x):
+    return np.nan
+  result = HMS_RE.match(x)
+  h, m, s = result.group(1, 2, 3)
+  if m is None: m = '0'
+  if s is None: s = '0'
+  total_seconds = float(h) * 3600. + float(m) * 60. + float(s)
+  total_degrees = total_seconds * DEGREES_FROM_SECONDS
+  radians = total_degrees * RADIANS_FROM_DEGREES
+  return radians
+
+assert fix_ascension('0h') == 0.0
+assert fix_ascension('6h 0m 0s') == math.pi / 2.0
+assert fix_ascension('6h 5m 30s') == (
+  (6 * 3600.+ 5 * 60. + 30) * DEGREES_FROM_SECONDS * RADIANS_FROM_DEGREES
+)
+assert np.isnan(fix_ascension(np.nan))
+
+print('Starting')
+
+# Create pandas data frame
+stars = pd.read_csv('nearby.csv')
+
+# HACK: Solar system is first, 0-ize its right ascention & declination.
+stars['Right ascension'][0] = '0h'
+stars['Declination'][0] = '0°'
+
+# print(stars.head())
+
+def cleanup_name(x):
+  """Clean up name of a system"""
+  return x.replace('§', '')
+
+# Clean up star system names
+stars['System'] = stars['System'].apply(lambda x: cleanup_name(x))
+
+# RA and DEC are right ascension & declination in decimal radians
+stars['RA'] = stars['Right ascension'].apply(lambda x: fix_ascension(x))
+stars['DEC'] = stars['Declination'].apply(lambda x: fix_declination(x))
+stars['DIST'] = stars['Distance'].apply(lambda x: get_number(x))
+
+# print(stars['Right ascension'][1])
+# print(stars[['Right ascension', 'RA']])
+# print(stars[['Declination', 'DEC']])
+
+# Calculate x,y,z cartesian positions in space. For justification see
+# "Putting Your Stars in Their Places" by Greg Scalise (2003)
+# http://fmwriters.com/Visionback/Issue14/wbputtingstars.htm
+
+# print(stars['DIST'].to_numpy())
+# print(stars['DEC'].apply(np.cos).to_numpy())
+# print(stars['RA'].apply(np.cos).to_numpy())
+
+stars['x'] = pd.Series(np.multiply(stars['DIST'].to_numpy(),
+                       np.multiply(stars['DEC'].apply(np.cos).to_numpy(),
+                                   stars['RA'].apply(np.cos).to_numpy())))
+
+stars['y'] = pd.Series(np.multiply(stars['DIST'].to_numpy(),
+                       np.multiply(stars['DEC'].apply(np.cos).to_numpy(),
+                                   stars['RA'].apply(np.sin).to_numpy())))
+
+stars['z'] = pd.Series(np.multiply(stars['DIST'].to_numpy(),
+                       stars['DEC'].apply(np.sin).to_numpy()))
+
+# print(stars[['RA', 'DEC', 'DIST', 'x', 'y', 'z']])
+
+# Hail Mary graph: Simplify the presentation.
+# We *do* want to show Alpha Centauri, since's that's the closest star system
+# and many people have heard about it.
+# However, we'll remove too-negative y, and too high & too low.
+if HAIL_MARY:
+  boring_stars = stars[ stars['y'] < -4.0]
+  stars = stars.drop(boring_stars.index, axis=0)
+  too_high = stars[ stars['z'] > 5.0]
+  stars = stars.drop(too_high.index, axis=0)
+  too_low =  stars[ stars['z'] < -5.0]
+  stars = stars.drop(too_low.index, axis=0)
+
+# Use matplotlib.
+# See:
+# https://matplotlib.org/stable/api/pyplot_summary.html
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.plot.html
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.scatter.html#matplotlib.pyplot.scatter
+
+fig, ax = plt.subplots()
+
+ax.scatter(stars['x'], stars['y'])
+
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.annotate.html#matplotlib.pyplot.annotate
+# plt.annotate('Sol [0]', (0, 0), (0.1, 0.1))
+# plt.annotate('WISE 0855-0714 [-0.94]', (-5.101110631, 5.320295054), (-5.0, 5.4))
+
+def make_shorter_name(long_name):
+  short_name = long_name.partition('(')[0]
+  short_name = cleanup_name(short_name).strip()
+  return short_name
+
+def annotation(name, depth):
+  return '[{:-.1f}] {}'.format(depth, name)
+
+# This hashes short star names to indexes so we can rapidly find them later.
+short_star_names = {}
+
+# We need to move some star names so the result is readable.
+special_name_locations = {
+  "Teegarden's Star" : {'dx' : -0.3, 'dy': -0.5},
+  "L 1159-16" : {'dx' : -0.3, 'dy': -0.5},
+  "Luyten 726-8": {'dx': -2.0, 'dy': +0.5},
+  "YZ Ceti" : {'dx' : -2.0, 'dy': -0.5},
+  "Van Maanen's star": {'dx' : -2.0, 'dy' : -0.5},
+  'Wolf 359': {'dx' : -0.3, 'dy': -0.5},
+  'Lalande 21185': {'dx' : -0.3, 'dy': -0.5},
+  'Ross 128': {'dx' : -0.3, 'dy': -0.5},
+  'Gliese 1002': {'dx' : -0.3, 'dy': -0.5},
+  'Gliese 1005': {'dx' : -2.8, 'dy': +0.3},
+  'Gliese 1002': {'dx' : -2.8, 'dy': -0.5},
+}
+
+def annotation_location(short_name, x, y):
+  if short_name in special_name_locations:
+    dx = special_name_locations[short_name]['dx']
+    dy = special_name_locations[short_name]['dy']
+  else:
+    dx = -1.0
+    dy = 0.3
+  return (x + dx, y + dy)
+
+# Add star system names to the plot. We name systems, not individual stars,
+# since individual stars will be too close to their partners.
+# Use iterator - it's not clear that plt.annotation is vectorized.
+# This loop also sets short_star_names.
+last = '' # Don't repeat last one.
+for index, star in stars.iterrows():
+  system = star['System']
+  if system != last:
+    short_name = make_shorter_name(system)
+    text = annotation(short_name, star['z'])
+    short_star_names[short_name] = index
+    x = star['x']
+    y = star['y']
+    annotation_xy = annotation_location(short_name, x, y)
+    plt.annotate(text, (x, y), annotation_xy, fontsize='small')
+    last = system
+
+# Add arrows
+
+TRANSMISSIONS = [
+  ('Tau Ceti', 'Epsilon Eridani'),
+  ('Epsilon Eridani', 'Sirius'),
+  ('Sirius', 'WISE 0855−0714'), # BEWARE! WISE has a long dash, not normal dash
+  ('WISE 0855−0714', 'Solar System'),
+  ('WISE 0855−0714', 'Wolf 359'),
+  ('WISE 0855−0714', 'Lalande 21185'),
+  ('WISE 0855−0714', 'Ross 128'),
+  ('Epsilon Eridani', '40 Eridani'),
+]
+
+def draw_arrow(source, destination):
+  source_index = short_star_names[source]
+  source_x = stars.loc[source_index]['x']
+  source_y = stars.loc[source_index]['y']
+
+  destination_index = short_star_names[destination]
+  destination_x = stars.loc[destination_index]['x']
+  destination_y = stars.loc[destination_index]['y']
+
+  dx = destination_x - source_x
+  dy = destination_y - source_y
+
+  plt.arrow(source_x, source_y, dx, dy,
+            head_width=0.3, length_includes_head=True)
+
+  # Add light-year distances
+  distance = math.dist((source_x, source_y), (destination_x, destination_y))
+  distance_text = '{:-.1f}'.format(distance)
+  ly_x = statistics.mean([source_x, destination_x])
+  ly_y = statistics.mean([source_y, destination_y])
+  plt.text(ly_x, ly_y, distance_text, fontsize='small', fontstyle='italic')
+
+if HAIL_MARY:
+  for arrow in TRANSMISSIONS:
+    source, destination = arrow
+    draw_arrow(source, destination)
+
+plt.title('Hail Mary Stellar Map by David A. Wheeler (+/- 5 ly of equator), CC-BY 3.0+')
+
+fig = plt.gcf()
+# Ratio of 30:20
+fig.set_size_inches(10.5, 7, forward=True)
+
+plt.savefig('hail-mary.svg')
+
+plt.show()
+
+print('Done')

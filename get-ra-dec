@@ -1,0 +1,17 @@
+#!/bin/sh
+
+while read id
+do
+  # See: https://www.mediawiki.org/wiki/Manual:Parameters_to_index.php
+  # Produce, e.g.:
+  # https://en.wikipedia.org/w/index.php?title=Gliese_412&action=raw
+  tweaked_id=$(printf '%s' "$id" | sed -e 's/ /_/g' -e 's/+/%2B/g' )
+  url="https://en.wikipedia.org/w/index.php?title=${tweaked_id}&action=raw"
+  printf '%s %s\n' "$id" "$url"
+  echo > .result # Erase old result
+  curl -s --output .result "$url"  
+  # Print results. Don't turn long dash into minus sign; we could do that with
+  # | sed -e 's/–/-/g'
+  grep -E -o '\{\{(RA|DEC)[-–+0-9.±|]+\}\}(<ref .*<\/ref>)?' .result
+  echo
+done < ids-of-stars
