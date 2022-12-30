@@ -191,6 +191,9 @@ short_star_names = {}
 # We need to move some star names so the result is readable.
 special_name_locations = {
   'Solar System': {'dx' : +0.1, 'dy': 0.3},
+  'Tau Ceti': {'dx' : +0.1, 'dy': 0.3},
+  'Epsilon Eridani': { 'dx': +0.3, 'dy': 0.3},
+  'WISE 0855−0714': { 'dx': +0.5, 'dy': 0.0},
   "Teegarden's Star" : {'dx' : -0.3, 'dy': -0.5},
   "L 1159-16" : {'dx' : -0.3, 'dy': -0.5},
   "Luyten 726-8": {'dx': -2.0, 'dy': +0.5},
@@ -213,6 +216,8 @@ def annotation_location(short_name, x, y):
     dy = 0.3
   return (x + dx, y + dy)
 
+BOLD_SYSTEMS = ['Solar System', 'Tau Ceti', '40 Eridani']
+
 # Add star system names to the plot. We name systems, not individual stars,
 # since individual stars will be too close to their partners.
 # Use iterator - it's not clear that plt.annotation is vectorized.
@@ -228,7 +233,7 @@ for index, star in stars.iterrows():
     x = star['x']
     y = star['y']
     annotation_xy = annotation_location(short_name, x, y)
-    if short_name == 'Solar System':
+    if short_name in BOLD_SYSTEMS:
       weight = 'bold'
     else:
       weight =  'normal'
