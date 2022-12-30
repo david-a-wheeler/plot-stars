@@ -154,9 +154,9 @@ stars['z'] = pd.Series(np.multiply(stars['DIST'].to_numpy(),
 # Hail Mary graph: Simplify the presentation.
 # We *do* want to show Alpha Centauri, since's that's the closest star system
 # and many people have heard about it.
-# However, we'll remove too-negative y, and too high & too low.
+# However, we'll remove too-negative y, and too high & too low to simplify it.
 if HAIL_MARY:
-  boring_stars = stars[ stars['y'] < -4.0]
+  boring_stars = stars[ stars['y'] < -5.0] # y too negative, not in story
   stars = stars.drop(boring_stars.index, axis=0)
   too_high = stars[ stars['z'] > 5.0]
   stars = stars.drop(too_high.index, axis=0)
@@ -190,6 +190,7 @@ short_star_names = {}
 
 # We need to move some star names so the result is readable.
 special_name_locations = {
+  'Solar System': {'dx' : +0.1, 'dy': 0.3},
   "Teegarden's Star" : {'dx' : -0.3, 'dy': -0.5},
   "L 1159-16" : {'dx' : -0.3, 'dy': -0.5},
   "Luyten 726-8": {'dx': -2.0, 'dy': +0.5},
@@ -219,6 +220,7 @@ def annotation_location(short_name, x, y):
 last = '' # Don't repeat last one.
 for index, star in stars.iterrows():
   system = star['System']
+  # Don't show name of same system more than once (to handle Alpha Centauri)
   if system != last:
     short_name = make_shorter_name(system)
     text = annotation(short_name, star['z'])
@@ -226,7 +228,12 @@ for index, star in stars.iterrows():
     x = star['x']
     y = star['y']
     annotation_xy = annotation_location(short_name, x, y)
-    plt.annotate(text, (x, y), annotation_xy, fontsize='small')
+    if short_name == 'Solar System':
+      weight = 'bold'
+    else:
+      weight =  'normal'
+    plt.annotate(text, (x, y), annotation_xy, fontsize='small',
+                 fontweight=weight)
     last = system
 
 # Add arrows
