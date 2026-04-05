@@ -21,8 +21,11 @@ HAIL_MARY = True
 
 RADIANS_FROM_DEGREES = (2. * math.pi) / 360.
 
+# Fix the sign of a number. Some data sources use a Unicode minus sign
+# (U+2212, which looks like a long dash) and others use a normal ASCII '-'.
+# Accept both and return the stripped text plus a numeric sign.
 def fix_sign(x):
-  """Returns fiex_text, sign"""
+  """Returns (fixed_text, sign) where sign is 1 or -1."""
   sign = 1  
   x = x.lstrip()
   if x.startswith('-'):
@@ -37,9 +40,9 @@ assert fix_sign('−62') == ('62', -1)
 
 NUM_RE = re.compile(r' *(\+|-|−)?([0-9.]+)')
 
-# Convert Wikimedia text into a number.
-# skips ± and after,
-# turns None into 0.
+# Convert a Wikimedia-style text value into a float.
+# Ignores everything after a +/- uncertainty marker.
+# Returns NaN if the value cannot be parsed.
 def get_number(x):
   x, sign = fix_sign(x)
   result = NUM_RE.match(x)
@@ -54,6 +57,8 @@ def get_number(x):
 assert get_number('0') == 0.0
 assert get_number('−1.5') == -1.5
 
+# Pattern for valid DMS (Degrees, Minutes, Seconds).
+# Accepts Unicode symbols (° ′ ″) or letters (d m s).
 DMS_RE = re.compile(r' *\+?([0-9]+)(?:°|d)(?: *([0-9]+)(?:′|m))?(?: *([0-9.]+)(?:″|s))?')
 
 def fix_declination(x):
@@ -78,13 +83,15 @@ assert fix_declination('−53° 19′ 06″') == (
   -1 * (53. + 19./60 + 6./3600) * RADIANS_FROM_DEGREES
 )
 
-# We only match at the beginning, so it doesn't matter what happens afterwards
+# HMS = Hours, Minutes, Seconds. We only match at the start of the string,
+# so trailing uncertainty values (like "±0.5") are safely ignored.
 HMS_RE = re.compile(r' *([0-9]+)h(?: *([0-9]+)m)?(?: *([0-9.]+)s)?')
+# Right ascension is measured in hours (0-24), so convert to degrees first,
+# then to radians.
 DEGREES_FROM_SECONDS = 360. / (24 * 60 * 60)
 
-# Converts long-dash to dash like sed -e 's/–/-/g',
 def fix_ascension(x):
-  """Convert Xh Ym Zs degrees into radians."""
+  """Convert right ascension from HMS format (e.g. '6h 0m 0s') into radians."""
   if not isinstance(x, str) and np.isnan(x):
     return np.nan
   result = HMS_RE.match(x)
@@ -109,13 +116,13 @@ print('Starting')
 stars = pd.read_csv('nearby.csv')
 
 # HACK: Solar system is first, 0-ize its right ascention & declination.
-stars['Right ascension'][0] = '0h'
-stars['Declination'][0] = '0°'
+stars.loc[0, 'Right ascension'] = '0h'
+stars.loc[0, 'Declination'] = '0°'
 
 # print(stars.head())
 
 def cleanup_name(x):
-  """Clean up name of a system"""
+  """Remove Wikipedia citation markers (§) from a system name."""
   return x.replace('§', '')
 
 # Clean up star system names
@@ -160,7 +167,7 @@ if HAIL_MARY:
   stars = stars.drop(boring_stars.index, axis=0)
   too_high = stars[ stars['z'] > 5.0]
   stars = stars.drop(too_high.index, axis=0)
-  too_low =  stars[ stars['z'] < -5.0]
+  too_low = stars[ stars['z'] < -5.0]
   stars = stars.drop(too_low.index, axis=0)
 
 # Use matplotlib.
@@ -178,11 +185,13 @@ ax.scatter(stars['x'], stars['y'])
 # plt.annotate('WISE 0855-0714 [-0.94]', (-5.101110631, 5.320295054), (-5.0, 5.4))
 
 def make_shorter_name(long_name):
+  """Return the part of a system name before any parenthesized alternate name."""
   short_name = long_name.partition('(')[0]
   short_name = cleanup_name(short_name).strip()
   return short_name
 
 def annotation(name, depth):
+  """Format a star label as '[depth] name', e.g. '[4.9] Lalande 21185'."""
   return '[{:-.1f}] {}'.format(depth, name)
 
 # This hashes short star names to indexes so we can rapidly find them later.
@@ -216,6 +225,8 @@ def annotation_location(short_name, x, y):
     dy = 0.3
   return (x + dx, y + dy)
 
+# Systems labeled in bold:
+# our origin, the source of Astrophage, and Rocky's home.
 BOLD_SYSTEMS = ['Solar System', 'Tau Ceti', '40 Eridani']
 
 # Add star system names to the plot. We name systems, not individual stars,
@@ -236,7 +247,7 @@ for index, star in stars.iterrows():
     if short_name in BOLD_SYSTEMS:
       weight = 'bold'
     else:
-      weight =  'normal'
+      weight = 'normal'
     plt.annotate(text, (x, y), annotation_xy, fontsize='small',
                  fontweight=weight)
     last = system
@@ -254,14 +265,26 @@ TRANSMISSIONS = [
   ('Epsilon Eridani', '40 Eridani'),
 ]
 
+# Offsets to improve readability of distance labels on arrows.
+# Keys are (source, destination) matching TRANSMISSIONS entries.
+distance_label_offsets = {
+  ('Sirius', 'WISE 0855−0714'): {'dx': +0.5, 'dy': 0.0},
+  ('WISE 0855−0714', 'Lalande 21185'): {'dx': +0.5, 'dy': 0.0},
+  ('WISE 0855−0714', 'Ross 128'): {'dx': -0.5, 'dy': 0.0},
+  ('WISE 0855−0714', 'Wolf 359'): {'dx': -1.0, 'dy': -1.0},
+}
+
 def draw_arrow(source, destination):
+  """Draw a directed arrow from source to dest, label it with distance in ly."""
   source_index = short_star_names[source]
   source_x = stars.loc[source_index]['x']
   source_y = stars.loc[source_index]['y']
+  source_z = stars.loc[source_index]['z']
 
   destination_index = short_star_names[destination]
   destination_x = stars.loc[destination_index]['x']
   destination_y = stars.loc[destination_index]['y']
+  destination_z = stars.loc[destination_index]['z']
 
   dx = destination_x - source_x
   dy = destination_y - source_y
@@ -269,19 +292,25 @@ def draw_arrow(source, destination):
   plt.arrow(source_x, source_y, dx, dy,
             head_width=0.3, length_includes_head=True)
 
-  # Add light-year distances
-  distance = math.dist((source_x, source_y), (destination_x, destination_y))
+  # Add light-year distances (true 3D distance, not just 2D projection)
+  distance = math.dist((source_x, source_y, source_z),
+                       (destination_x, destination_y, destination_z))
   distance_text = '{:-.1f}'.format(distance)
-  ly_x = statistics.mean([source_x, destination_x])
-  ly_y = statistics.mean([source_y, destination_y])
-  plt.text(ly_x, ly_y, distance_text, fontsize='small', fontstyle='italic')
+  # Place the label at the midpoint of the arrow (in plot coordinates),
+  # with optional offset.
+  offsets = distance_label_offsets.get((source, destination),
+                                       {'dx': 0.0, 'dy': 0.0})
+  label_x = statistics.mean([source_x, destination_x]) + offsets['dx']
+  label_y = statistics.mean([source_y, destination_y]) + offsets['dy']
+  plt.text(label_x, label_y, distance_text,
+           fontsize='small', fontstyle='italic')
 
 if HAIL_MARY:
   for arrow in TRANSMISSIONS:
     source, destination = arrow
     draw_arrow(source, destination)
 
-plt.title('Hail Mary Stellar Map by David A. Wheeler (+/- 5 ly of equator), CC-BY 3.0+')
+plt.title('Hail Mary Stellar Map by David A. Wheeler (+/- 5 ly of equator), 2026-04-05, CC-BY 3.0+')
 
 fig = plt.gcf()
 # Ratio of 30:20
@@ -289,6 +318,11 @@ fig.set_size_inches(10.5, 7, forward=True)
 
 plt.savefig('hail-mary.svg')
 
-plt.show()
+import matplotlib
+# The 'agg' backend is a non-interactive renderer used when no display is
+# available (e.g. when running headlessly via make). Calling plt.show() on
+# it produces a harmless but noisy warning, so we skip it in that case.
+if matplotlib.get_backend() != 'agg':
+  plt.show()
 
 print('Done')
