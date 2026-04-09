@@ -1,0 +1,13 @@
+.venv/
+
+# Generated output — recreated by running make
+*.svg
+*.pdf
+
+# Downloaded starplot catalog files — recreated on first run
+*.parquet
+*.bsp
+duckdb-extensions/
+
+# Python bytecode cache
+__pycache__/

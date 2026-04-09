@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+# Plot a sky (observer's-perspective) chart for Project Hail Mary.
+#
+# Shows where the story's key star systems appear in Earth's night sky,
+# with directed orange arcs tracing the Astrophage transmission path.
+# Constellation stick figures are included as orientation aids for readers
+# who are not familiar with the night sky.
+#
+# Copyright 2026 David A. Wheeler and plot-stars contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# The resulting chart is licensed Creative Commons Attribution (CC-BY) 3.0+.
+# Background star data: starplot Big Sky Catalog (Hipparcos/Tycho, MIT license).
+
+import re
+import pandas as pd
+
+from starplot import MapPlot, Miller, _
+from starplot.models import Star
+from starplot.styles import PlotStyle, extensions
+
+from star_data import WISE_NAME, SKY_CHART_HIP, SKY_CHART_TRANSMISSIONS
+
+
+# ---------------------------------------------------------------------------
+# Helper functions: parse RA/Dec strings from nearby.csv.
+#
+# These are only needed for WISE 0855-0714, whose position is read from
+# nearby.csv because it has no Hipparcos entry (see Step 1 below).  The
+# logic mirrors the fix_ascension / fix_declination functions in plot-stars
+# but is simplified to handle only the formats that appear in the CSV for
+# the WISE row.
+# ---------------------------------------------------------------------------
+
+def hms_to_deg(s):
+    """Convert 'HHh MMm SS.SSs' right-ascension string to decimal degrees."""
+    m = re.match(r'(\d+)h\s*(\d+)m\s*([\d.]+)s', s.strip())
+    if not m:
+        raise ValueError(f'Cannot parse RA: {s!r}')
+    h, mn, sec = float(m.group(1)), float(m.group(2)), float(m.group(3))
+    return (h + mn / 60.0 + sec / 3600.0) * 15.0   # convert hours → degrees
+
+def dms_to_deg(s):
+    """Convert '±DD° MM′ SS.S″' declination string to decimal degrees."""
+    s = s.strip()
+    sign = -1 if s[0] in '-\u2212' else 1   # accept ASCII '-' or Unicode '−'
+    s = s.lstrip('+-\u2212')
+    m = re.match(r"(\d+)[°d]\s*(\d+)[′']\s*([\d.]+)", s)
+    if not m:
+        raise ValueError(f'Cannot parse Dec: {s!r}')
+    d, mn, sec = float(m.group(1)), float(m.group(2)), float(m.group(3))
+    return sign * (d + mn / 60.0 + sec / 3600.0)
+
+def get_wise_coords(csv_path='nearby.csv'):
+    """Return (ra_deg, dec_deg) for WISE 0855-0714 read from nearby.csv.
+
+    nearby.csv is the single authoritative coordinate source for WISE because
+    the star was discovered in 2014, long after the Hipparcos mission ended,
+    so it has no Hipparcos entry and is absent from the starplot catalog.
+    """
+    df = pd.read_csv(csv_path)
+    # The System column uses a Unicode minus and a § marker; match broadly.
+    row = df[df['System'].str.contains('WISE 0855', na=False)].iloc[0]
+    return hms_to_deg(row['Right ascension']), dms_to_deg(row['Declination'])
+
+
+# ---------------------------------------------------------------------------
+# Step 1 – Gather star positions.
+#
+# For the four catalog stars we query the starplot Big Sky catalog by
+# Hipparcos ID (stored in SKY_CHART_HIP in star_data.py).  Using the
+# catalog positions—rather than parsing nearby.csv—guarantees that every
+# arrow endpoint sits exactly on the dot that starplot draws, avoiding
+# silent coordinate drift between the two data sources.
+#
+# WISE 0855-0714 is the exception: see get_wise_coords() above.
+# ---------------------------------------------------------------------------
+
+print('Looking up catalog positions...')
+star_coords = {}   # display name → (ra_deg, dec_deg)
+
+for display_name, hip in SKY_CHART_HIP.items():
+    results = list(Star.find(where=[_.hip == hip]))
+    if not results:
+        raise RuntimeError(
+            f'HIP {hip} ({display_name}) not found in starplot catalog'
+        )
+    s = results[0]
+    star_coords[display_name] = (s.ra, s.dec)
+    print(f'  {display_name}: RA={s.ra:.4f}°  Dec={s.dec:.4f}°')
+
+wise_ra, wise_dec = get_wise_coords()
+star_coords[WISE_NAME] = (wise_ra, wise_dec)
+print(f'  WISE 0855-0714 (from nearby.csv): RA={wise_ra:.4f}°  Dec={wise_dec:.4f}°')
+
+
+# ---------------------------------------------------------------------------
+# Step 2 – Build the sky chart.
+#
+# Projection
+# ----------
+# Miller cylindrical.  Well-suited for the low-declination band spanned by
+# our stars (Dec ≈ −17° to −7°); the same projection is used in the
+# starplot "Map of Canis Major" documentation example.
+#
+# Bounds
+# ------
+# RA  18° – 142°  (≈ 1 h 12 m – 9 h 28 m): about 8° of padding either side
+#     of the outermost stars (Tau Ceti at 26°, WISE at 134°).
+# Dec −37° – +26°: chosen to include the full IAU extents of Orion
+#     (Dec −11° to +23°) and Canis Major (Dec −33° to −11°), with ~3–4°
+#     of padding.  The previous tighter bounds (−21° to −3°) clipped both
+#     constellations, removing the visual context that makes the chart
+#     useful for beginners.
+#
+# RA AXIS DIRECTION
+# -----------------
+# Sky charts conventionally show RA increasing right-to-left (east is left
+# when you look up at the sky).  Starplot follows this convention
+# automatically: Tau Ceti (RA ≈ 26°) appears on the RIGHT edge of this
+# chart and WISE 0855-0714 (RA ≈ 134°) appears on the LEFT.
+# To flip to map-style orientation (RA increases left-to-right), add:
+#     p.ax.invert_xaxis()
+# after the MapPlot block below.  Flipping may displace some of the
+# auto-placed constellation labels.
+# ---------------------------------------------------------------------------
+
+print('Building chart...')
+style = PlotStyle().extend(
+    extensions.BLUE_NIGHT,   # dark blue background, white stars, green constellations
+    extensions.MAP,           # adjust label/line sizes for a printed map
+)
+
+p = MapPlot(
+    projection=Miller(),
+    ra_min=18,
+    ra_max=142,
+    dec_min=-37,
+    dec_max=+26,
+    style=style,
+    resolution=4096,
+)
+
+# Constellation stick figures — the primary orientation aid for beginners.
+# Plotted first so stars and arrows render on top of them.
+p.constellations()
+p.constellation_labels()
+
+# Stars to the naked-eye limit (magnitude < 6.5).
+#
+# Automatic star labeling is suppressed (where_labels=[False]) because the
+# catalog names for our key stars are either absent (Tau Ceti has name=None
+# in the Big Sky catalog), unofficial ("Ran" for Epsilon Eridani), or
+# obscure ("Keid" for 40 Eridani).  We add our own labels below.
+p.stars(where=[_.magnitude < 6.5], where_labels=[False])
+
+# RA/Dec grid for coordinate reference.
+p.gridlines()
+
+
+# ---------------------------------------------------------------------------
+# Step 3 – Custom marker for WISE 0855-0714.
+#
+# WISE is a sub-brown dwarf, not a true hydrogen-fusing star.  We render it
+# as a dim open circle (fill omitted → defaults to FillStyleEnum.NONE) so
+# it looks different from the filled star dots plotted by p.stars() above.
+# ---------------------------------------------------------------------------
+p.marker(
+    ra=wise_ra,
+    dec=wise_dec,
+    style={
+        'marker': {
+            'symbol': 'circle',
+            'size': 20,
+            'color': '#aaaaaa',     # fill color (visible in FULL fill mode)
+            'edge_color': '#cccccc',
+            'alpha': 0.9,
+        }
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Step 4 – Custom labels for the five key story stars.
+#
+# We label each star with its familiar story name rather than the catalog
+# value.  offset_x / offset_y (in points) nudge the text slightly away
+# from the star dot so they don't overlap.
+#
+# border_width / border_color add a dark halo around each label.  Without
+# the halo the white text can be unreadable wherever it crosses an orange
+# arrow shaft, a green constellation line, or another bright star — Sirius
+# in particular sits at the junction of two arcs.
+# ---------------------------------------------------------------------------
+label_style = {
+    'font_size': 11,
+    'font_color': 'white',
+    'font_weight': 700,       # bold; corresponds to FontWeightEnum.BOLD
+    'offset_x': 10,
+    'offset_y': 10,
+    'border_width': 2,        # dark halo keeps text legible over any background
+    'border_color': '#0d1a2a',  # near-black dark blue, matching the chart background
+}
+for display_name, (ra, dec) in star_coords.items():
+    p.text(display_name, ra=ra, dec=dec, style=label_style)
+
+
+# ---------------------------------------------------------------------------
+# Step 5 – Directed Astrophage transmission arcs.
+#
+# Drawn last so arrowheads appear on top of everything else.
+#
+# Color: orange — chosen to contrast clearly with the green constellation
+# lines and blue background produced by the BLUE_NIGHT + MAP style.
+#
+# scale=0.97: pulls each endpoint 3 % inward so the arrowhead doesn't
+# overlap the star dot.  The default (0.99) can be too tight when two
+# stars are close together on the chart.
+# ---------------------------------------------------------------------------
+arc_style = {
+    'color': 'darkorange',
+    'body_width': 20,
+    'head_width': 55,
+    'head_height': 90,
+    'alpha': 0.9,
+}
+for src_name, dst_name in SKY_CHART_TRANSMISSIONS:
+    src_ra, src_dec = star_coords[src_name]
+    dst_ra, dst_dec = star_coords[dst_name]
+    p.arrow(
+        origin=(src_ra, src_dec),
+        target=(dst_ra, dst_dec),
+        style=arc_style,
+        scale=0.97,
+    )
+
+p.export('hail-mary-sky.svg', padding=0.2)
+print('Done — hail-mary-sky.svg written.')

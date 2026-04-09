@@ -16,6 +16,8 @@ import re
 import math
 import statistics
 
+from star_data import TRANSMISSIONS   # shared with plot-sky
+
 # For now, this is the default
 HAIL_MARY = True
 
@@ -253,17 +255,7 @@ for index, star in stars.iterrows():
     last = system
 
 # Add arrows
-
-TRANSMISSIONS = [
-  ('Tau Ceti', 'Epsilon Eridani'),
-  ('Epsilon Eridani', 'Sirius'),
-  ('Sirius', 'WISE 0855−0714'), # BEWARE! WISE has a long dash, not normal dash
-  ('WISE 0855−0714', 'Solar System'),
-  ('WISE 0855−0714', 'Wolf 359'),
-  ('WISE 0855−0714', 'Lalande 21185'),
-  ('WISE 0855−0714', 'Ross 128'),
-  ('Epsilon Eridani', '40 Eridani'),
-]
+# TRANSMISSIONS is imported from star_data.py, which is also used by plot-sky.
 
 # Offsets to improve readability of distance labels on arrows.
 # Keys are (source, destination) matching TRANSMISSIONS entries.
