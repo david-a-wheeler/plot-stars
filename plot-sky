@@ -13,6 +13,7 @@
 # Background star data: starplot Big Sky Catalog (Hipparcos/Tycho, MIT license).
 
 import re
+import sys
 import pandas as pd
 
 from starplot import MapPlot, Miller, CollisionHandler, _
@@ -20,6 +21,21 @@ from starplot.models import Star
 from starplot.styles import PlotStyle, extensions, AnchorPointEnum
 
 from star_data import WISE_NAME, SKY_CHART_HIP, SKY_CHART_TRANSMISSIONS
+
+# ---------------------------------------------------------------------------
+# Mode selection via command-line flag.
+#
+# Default (no flag): extended chart — includes Wolf 359, Lalande 21185, and
+#   Ross 128 (the remaining WISE targets).  Output: hail-mary-sky.svg
+#   RA 18–190°, Dec −37° to +44° — covers Leo/Virgo/Ursa Major.
+#
+# --limited: compact chart — only the five core story stars visible from the
+#   Orion/Canis-Major region.  Output: hail-mary-sky-limited.svg
+#   RA 18–142°, Dec −37° to +26°.
+# ---------------------------------------------------------------------------
+LIMITED = '--limited' in sys.argv
+INCLUDE_OUTER_WISE_TARGETS = not LIMITED
+OUTPUT_FILE = 'hail-mary-sky-limited.svg' if LIMITED else 'hail-mary-sky.svg'
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +67,13 @@ def dms_to_deg(s):
     d, mn, sec = float(m.group(1)), float(m.group(2)), float(m.group(3))
     return sign * (d + mn / 60.0 + sec / 3600.0)
 
+def get_coords_from_csv(name_fragment, csv_path='nearby.csv'):
+    """Return (ra_deg, dec_deg) for the first row whose System column contains
+    name_fragment.  Used for stars absent from the Hipparcos/starplot catalog."""
+    df = pd.read_csv(csv_path)
+    row = df[df['System'].str.contains(name_fragment, na=False)].iloc[0]
+    return hms_to_deg(row['Right ascension']), dms_to_deg(row['Declination'])
+
 def get_wise_coords(csv_path='nearby.csv'):
     """Return (ra_deg, dec_deg) for WISE 0855-0714 read from nearby.csv.
 
@@ -58,10 +81,7 @@ def get_wise_coords(csv_path='nearby.csv'):
     the star was discovered in 2014, long after the Hipparcos mission ended,
     so it has no Hipparcos entry and is absent from the starplot catalog.
     """
-    df = pd.read_csv(csv_path)
-    # The System column uses a Unicode minus and a § marker; match broadly.
-    row = df[df['System'].str.contains('WISE 0855', na=False)].iloc[0]
-    return hms_to_deg(row['Right ascension']), dms_to_deg(row['Declination'])
+    return get_coords_from_csv('WISE 0855', csv_path)
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +112,31 @@ for display_name, hip in SKY_CHART_HIP.items():
 wise_ra, wise_dec = get_wise_coords()
 star_coords[WISE_NAME] = (wise_ra, wise_dec)
 print(f'  WISE 0855-0714 (from nearby.csv): RA={wise_ra:.4f}°  Dec={wise_dec:.4f}°')
+
+# Extended targets — only looked up when INCLUDE_OUTER_WISE_TARGETS is set.
+#
+# Lalande 21185 is in the Hipparcos catalog (HIP 54035, mag ~7.5).
+# Wolf 359 (mag ~13.5) and Ross 128 (mag ~11.1) are too faint for Hipparcos
+# and are read from nearby.csv like WISE.
+#
+# The three names are kept as plain ASCII strings (no Unicode minus) because
+# that matches the short system names derived from nearby.csv by plot-stars.
+if INCLUDE_OUTER_WISE_TARGETS:
+    lalande_hip = 54035
+    results = list(Star.find(where=[_.hip == lalande_hip]))
+    if not results:
+        raise RuntimeError(f'HIP {lalande_hip} (Lalande 21185) not found in starplot catalog')
+    s = results[0]
+    star_coords['Lalande 21185'] = (s.ra, s.dec)
+    print(f'  Lalande 21185: RA={s.ra:.4f}°  Dec={s.dec:.4f}°')
+
+    wolf_ra, wolf_dec = get_coords_from_csv('Wolf 359')
+    star_coords['Wolf 359'] = (wolf_ra, wolf_dec)
+    print(f'  Wolf 359 (from nearby.csv): RA={wolf_ra:.4f}°  Dec={wolf_dec:.4f}°')
+
+    ross_ra, ross_dec = get_coords_from_csv('Ross 128')
+    star_coords['Ross 128'] = (ross_ra, ross_dec)
+    print(f'  Ross 128 (from nearby.csv): RA={ross_ra:.4f}°  Dec={ross_dec:.4f}°')
 
 
 # ---------------------------------------------------------------------------
@@ -131,12 +176,22 @@ style = PlotStyle().extend(
     extensions.MAP,           # adjust label/line sizes for a printed map
 )
 
+# Bounds: normal view covers Orion + Canis Major around the five core story
+# stars.  Extended view adds Leo/Virgo/Ursa Major to accommodate Wolf 359,
+# Lalande 21185, and Ross 128 — roughly doubling the RA span.
+if INCLUDE_OUTER_WISE_TARGETS:
+    ra_min, ra_max   = 18, 190
+    dec_min, dec_max = -37, +44   # +44 gives a few degrees of padding above Lalande (+36°)
+else:
+    ra_min, ra_max   = 18, 142
+    dec_min, dec_max = -37, +26
+
 p = MapPlot(
     projection=Miller(),
-    ra_min=18,
-    ra_max=142,
-    dec_min=-37,
-    dec_max=+26,
+    ra_min=ra_min,
+    ra_max=ra_max,
+    dec_min=dec_min,
+    dec_max=dec_max,
     style=style,
     resolution=4096,
 )
@@ -179,19 +234,23 @@ p.gridlines()
 # as a dim open circle (fill omitted → defaults to FillStyleEnum.NONE) so
 # it looks different from the filled star dots plotted by p.stars() above.
 # ---------------------------------------------------------------------------
-p.marker(
-    ra=wise_ra,
-    dec=wise_dec,
-    style={
-        'marker': {
-            'symbol': 'circle',
-            'size': 20,
-            'color': '#aaaaaa',     # fill color (visible in FULL fill mode)
-            'edge_color': '#cccccc',
-            'alpha': 0.9,
-        }
-    },
-)
+dim_marker_style = {
+    'marker': {
+        'symbol': 'circle',
+        'size': 20,
+        'color': '#aaaaaa',     # fill color (visible in FULL fill mode)
+        'edge_color': '#cccccc',
+        'alpha': 0.9,
+    }
+}
+# WISE, Wolf 359, and Ross 128 are all sub-catalog objects (too faint for
+# Hipparcos) — render them as dim open circles.  Lalande 21185 (HIP 54035,
+# mag ~7.5) is plotted automatically by p.stars() above.
+p.marker(ra=wise_ra, dec=wise_dec, style=dim_marker_style)
+
+if INCLUDE_OUTER_WISE_TARGETS:
+    p.marker(ra=wolf_ra,  dec=wolf_dec,  style=dim_marker_style)
+    p.marker(ra=ross_ra,  dec=ross_dec,  style=dim_marker_style)
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +328,9 @@ for display_name, (ra, dec) in star_coords.items():
 # Color: orange — chosen to contrast clearly with the green constellation
 # lines and blue background produced by the BLUE_NIGHT + MAP style.
 #
-# scale=0.97: pulls each endpoint 3 % inward so the arrowhead doesn't
-# overlap the star dot.  The default (0.99) can be too tight when two
-# stars are close together on the chart.
+# scale=0.95: pulls each endpoint 5 % inward so the arrowhead clears the
+# star dot.  0.97 triggered a Shapely "segment overlaps with splitter"
+# error for the WISE→Ross 128 arc at high resolution; 0.95 is safe.
 # ---------------------------------------------------------------------------
 arc_style = {
     'color': 'darkorange',
@@ -280,15 +339,23 @@ arc_style = {
     'head_height': 90,
     'alpha': 0.9,
 }
-for src_name, dst_name in SKY_CHART_TRANSMISSIONS:
+all_transmissions = list(SKY_CHART_TRANSMISSIONS)
+if INCLUDE_OUTER_WISE_TARGETS:
+    all_transmissions += [
+        (WISE_NAME,  'Wolf 359'),
+        (WISE_NAME,  'Lalande 21185'),
+        (WISE_NAME,  'Ross 128'),
+    ]
+
+for src_name, dst_name in all_transmissions:
     src_ra, src_dec = star_coords[src_name]
     dst_ra, dst_dec = star_coords[dst_name]
     p.arrow(
         origin=(src_ra, src_dec),
         target=(dst_ra, dst_dec),
         style=arc_style,
-        scale=0.97,
+        scale=0.95,
     )
 
-p.export('hail-mary-sky.svg', padding=0.2)
-print('Done — hail-mary-sky.svg written.')
+p.export(OUTPUT_FILE, padding=0.2)
+print(f'Done — {OUTPUT_FILE} written.')

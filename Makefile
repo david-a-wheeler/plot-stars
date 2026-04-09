@@ -11,7 +11,7 @@ VENV = .venv
 PYTHON = $(VENV)/bin/python3
 
 # These are the images we'll generate
-SVGS = hail-mary.svg hail-mary-sky.svg
+SVGS = hail-mary.svg hail-mary-sky.svg hail-mary-sky-limited.svg
 
 all: $(SVGS)
 
@@ -20,11 +20,15 @@ all: $(SVGS)
 hail-mary.svg: plot-stars star_data.py nearby.csv $(VENV)/bin/activate
 	$(PYTHON) ./plot-stars
 
-# Observer's sky chart: shows where the key stars appear in Earth's sky,
-# with directed arcs for the Astrophage transmission path.
-# Depends on star_data.py (shared data) and nearby.csv (WISE-0855 coords).
+# Extended sky chart: all story stars including Wolf 359, Lalande 21185,
+# Ross 128.  Covers RA 18–190°, Dec −37° to +44°.
 hail-mary-sky.svg: plot-sky star_data.py nearby.csv $(VENV)/bin/activate
 	$(PYTHON) ./plot-sky
+
+# Compact sky chart: only the five core story stars in Orion/Canis Major.
+# Covers RA 18–142°, Dec −37° to +26°.
+hail-mary-sky-limited.svg: plot-sky star_data.py nearby.csv $(VENV)/bin/activate
+	$(PYTHON) ./plot-sky --limited
 
 # Create the Python virtual environment and install all required packages.
 # starplot is needed for plot-sky; pandas/numpy/matplotlib for plot-stars.
