@@ -15,9 +15,9 @@
 import re
 import pandas as pd
 
-from starplot import MapPlot, Miller, _
+from starplot import MapPlot, Miller, CollisionHandler, _
 from starplot.models import Star
-from starplot.styles import PlotStyle, extensions
+from starplot.styles import PlotStyle, extensions, AnchorPointEnum
 
 from star_data import WISE_NAME, SKY_CHART_HIP, SKY_CHART_TRANSMISSIONS
 
@@ -205,18 +205,60 @@ p.marker(
 # the halo the white text can be unreadable wherever it crosses an orange
 # arrow shaft, a green constellation line, or another bright star — Sirius
 # in particular sits at the junction of two arcs.
+#
+# CollisionHandler(plot_on_fail=True): the default handler silently drops a
+# label if it cannot find a collision-free position.  Epsilon Eridani is the
+# junction of three Astrophage arcs, so every candidate position collides and
+# without this flag its label disappears entirely.  plot_on_fail=True forces
+# all five key-star labels onto the chart regardless of collisions.
 # ---------------------------------------------------------------------------
 label_style = {
-    'font_size': 11,
-    'font_color': 'white',
+    # font_size=28 is intentionally slightly larger than the conventional-name
+    # auto-labels (which the MAP style extension sets to 22pt) so that readers
+    # notice the story-relevant stars even before reading the names.
+    'font_size': 28,
+    # A warm light gold rather than plain white: visually echoes the orange
+    # Astrophage arcs and signals "these stars are special" without being
+    # garish.  Plain white (#ffffff) would blend in with the auto-labels.
+    'font_color': '#ffd060',
     'font_weight': 700,       # bold; corresponds to FontWeightEnum.BOLD
-    'offset_x': 10,
-    'offset_y': 10,
+    'offset_x': 14,
+    'offset_y': 14,
     'border_width': 2,        # dark halo keeps text legible over any background
     'border_color': '#0d1a2a',  # near-black dark blue, matching the chart background
 }
+key_star_collision = CollisionHandler(plot_on_fail=True)
+
+# Per-star placement for Epsilon Eridani.
+#
+# Epsilon Eridani is the junction of three arrows, so every default anchor
+# position collides and CollisionHandler(plot_on_fail=True) falls back to the
+# LAST entry in anchor_fallbacks — which is LEFT_CENTER by default.
+#
+# To force the label above-right of the dot (bottom-left of text box at the
+# star), we give Epsilon Eridani its own CollisionHandler whose anchor_fallbacks
+# list contains only TOP_RIGHT.  With plot_on_fail=True the handler will always
+# land there regardless of collisions.
+#
+# Why TOP_RIGHT places text UP and to the RIGHT:
+#   AnchorPointEnum.as_matplot() inverts names because the sky-chart RA axis is
+#   internally negated.  TOP_RIGHT → va='bottom', ha='left' in matplotlib,
+#   which means the BOTTOM-LEFT corner of the text box is at the anchor point,
+#   so the text extends upward and to the right.
+eps_eri_collision = CollisionHandler(
+    plot_on_fail=True,
+    anchor_fallbacks=[AnchorPointEnum.TOP_RIGHT],
+)
+
 for display_name, (ra, dec) in star_coords.items():
-    p.text(display_name, ra=ra, dec=dec, style=label_style)
+    style = {**label_style}
+    if display_name == 'Epsilon Eridani':
+        style['offset_x'] = 5
+        style['offset_y'] = 5
+        ch = eps_eri_collision
+    else:
+        ch = key_star_collision
+    p.text(display_name, ra=ra, dec=dec, style=style, collision_handler=ch)
 
 
 # ---------------------------------------------------------------------------
