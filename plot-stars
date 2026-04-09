@@ -16,7 +16,7 @@ import re
 import math
 import statistics
 
-from star_data import TRANSMISSIONS   # shared with plot-sky
+from star_shared import TRANSMISSIONS, patch_svg_responsive   # shared with plot-sky
 
 # For now, this is the default
 HAIL_MARY = True
@@ -255,7 +255,7 @@ for index, star in stars.iterrows():
     last = system
 
 # Add arrows
-# TRANSMISSIONS is imported from star_data.py, which is also used by plot-sky.
+# TRANSMISSIONS is imported from star_shared.py, which is also used by plot-sky.
 
 # Offsets to improve readability of distance labels on arrows.
 # Keys are (source, destination) matching TRANSMISSIONS entries.
@@ -309,6 +309,7 @@ fig = plt.gcf()
 fig.set_size_inches(10.5, 7, forward=True)
 
 plt.savefig('hail-mary.svg')
+patch_svg_responsive('hail-mary.svg')
 
 import matplotlib
 # The 'agg' backend is a non-interactive renderer used when no display is

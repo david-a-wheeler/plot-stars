@@ -19,6 +19,19 @@
 # ---------------------------------------------------------------------------
 WISE_NAME = 'WISE 0855\u22120714'   # 'WISE 0855−0714'
 
+def patch_svg_responsive(filename):
+    """Add style='max-width:100%;height:auto;' to the root <svg> element.
+
+    This lets the SVG scale to fit the browser window when viewed directly
+    while preserving the width/height attributes as intrinsic-size hints
+    for HTML embedding.
+    """
+    with open(filename, 'r', encoding='utf-8') as f:
+        svg = f.read()
+    svg = svg.replace('<svg ', '<svg style="max-width:100%;height:auto;" ', 1)
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(svg)
+
 # ---------------------------------------------------------------------------
 # Directed Astrophage transmission arcs, source → destination.
 #

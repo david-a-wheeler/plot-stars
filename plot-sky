@@ -20,7 +20,7 @@ from starplot import MapPlot, Miller, CollisionHandler, _
 from starplot.models import Star
 from starplot.styles import PlotStyle, extensions, AnchorPointEnum
 
-from star_data import WISE_NAME, SKY_CHART_HIP, SKY_CHART_TRANSMISSIONS
+from star_shared import WISE_NAME, SKY_CHART_HIP, SKY_CHART_TRANSMISSIONS, patch_svg_responsive
 
 # ---------------------------------------------------------------------------
 # Mode selection via command-line flag.
@@ -88,7 +88,7 @@ def get_wise_coords(csv_path='nearby.csv'):
 # Step 1 – Gather star positions.
 #
 # For the four catalog stars we query the starplot Big Sky catalog by
-# Hipparcos ID (stored in SKY_CHART_HIP in star_data.py).  Using the
+# Hipparcos ID (stored in SKY_CHART_HIP in star_shared.py).  Using the
 # catalog positions—rather than parsing nearby.csv—guarantees that every
 # arrow endpoint sits exactly on the dot that starplot draws, avoiding
 # silent coordinate drift between the two data sources.
@@ -378,4 +378,5 @@ for src_name, dst_name in all_transmissions:
     )
 
 p.export(OUTPUT_FILE, padding=0.2)
+patch_svg_responsive(OUTPUT_FILE)
 print(f'Done — {OUTPUT_FILE} written.')
