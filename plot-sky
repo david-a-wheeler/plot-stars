@@ -148,11 +148,25 @@ p.constellation_labels()
 
 # Stars to the naked-eye limit (magnitude < 6.5).
 #
-# Automatic star labeling is suppressed (where_labels=[False]) because the
-# catalog names for our key stars are either absent (Tau Ceti has name=None
-# in the Big Sky catalog), unofficial ("Ran" for Epsilon Eridani), or
-# obscure ("Keid" for 40 Eridani).  We add our own labels below.
-p.stars(where=[_.magnitude < 6.5], where_labels=[False])
+# where_labels selects which stars get an automatic catalog-name label.
+# We show conventional names for the brightest, best-known stars
+# (magnitude < 2.5) to help readers orient themselves — Betelgeuse,
+# Rigel, Procyon, Aldebaran, etc.
+#
+# One exclusion applies:
+#   _.hip != 32349  — Sirius is excluded here because we already add it
+#       as a custom bold label below (along with the other key story stars).
+#       Letting starplot also auto-label it would produce two overlapping
+#       "Sirius" labels in different styles.
+# Note: a few binary stars (Alnitak, Mintaka) have two catalog entries and
+# will produce stacked duplicate labels at the same position; this is
+# harmless and invisible since the text is identical.
+p.stars(
+    where=[_.magnitude < 6.5],
+    where_labels=[
+        (_.magnitude < 2.5) & (_.hip != 32349)
+    ],
+)
 
 # RA/Dec grid for coordinate reference.
 p.gridlines()
