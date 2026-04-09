@@ -208,19 +208,39 @@ p.constellation_labels()
 # (magnitude < 2.5) to help readers orient themselves — Betelgeuse,
 # Rigel, Procyon, Aldebaran, etc.
 #
-# One exclusion applies:
-#   _.hip != 32349  — Sirius is excluded here because we already add it
-#       as a custom bold label below (along with the other key story stars).
-#       Letting starplot also auto-label it would produce two overlapping
-#       "Sirius" labels in different styles.
+# Exclusions from auto-labels (handled as forced labels below):
+#   _.hip != 32349  — Sirius: already added as a custom gold key-star label.
+#   _.hip != 27989  — Betelgeuse: collision detection sometimes drops it even
+#       though it is one of the most recognisable stars on the chart; we re-add
+#       it below with plot_on_fail=True so it always appears.
 # Note: a few binary stars (Alnitak, Mintaka) have two catalog entries and
 # will produce stacked duplicate labels at the same position; this is
 # harmless and invisible since the text is identical.
 p.stars(
     where=[_.magnitude < 6.5],
     where_labels=[
-        (_.magnitude < 2.5) & (_.hip != 32349)
+        (_.magnitude < 2.5) & (_.hip != 32349) & (_.hip != 27989)
     ],
+)
+
+# Forced label for Betelgeuse — matches the auto-label style (22 pt, bold,
+# blue-white #ebf0f4) but adds a thin dark halo so it stays readable when
+# it overlaps a green constellation line.
+_btel = list(Star.find(where=[_.hip == 27989]))[0]
+p.text(
+    'Betelgeuse',
+    ra=_btel.ra,
+    dec=_btel.dec,
+    style={
+        'font_size': 22,
+        'font_color': '#ebf0f4',
+        'font_weight': 700,
+        'offset_x': 8,
+        'offset_y': 8,
+        'border_width': 1.5,
+        'border_color': '#0d1a2a',
+    },
+    collision_handler=CollisionHandler(plot_on_fail=True),
 )
 
 # RA/Dec grid for coordinate reference.
